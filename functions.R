@@ -158,3 +158,45 @@ scp <- function(spec_data){
   
   return(list(df, setNames(as.character(df_labels$control), df_labels$controlID)))
 }
+
+# TODO: Documentation and testing
+plotCurve <- function(sca_data, title="", 
+                         y_lab="Independent variable intercept"){
+  sc <- ggplot(data=sca_data, aes(y=coef, x=index, fill=factor(sig.level))) +
+    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
+    geom_point(size=.75) +
+    geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
+    labs(title=title, x="", y=y_lab) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_blank(),
+      legend.position="top",
+      legend.title=element_blank(),
+      legend.key.size = unit(.4, 'cm')
+    )
+  
+  return(sc)
+}
+
+# TODO: Documentation and testing
+plotVars <- function(scp_data){
+  sc <- ggplot(data=scp_data[[1]],
+                aes(x=index,y=factor(controlID))
+  ) +
+    geom_point(shape="|", size=1) +
+    labs(y="", x="") +
+    scale_y_discrete(labels=scp_data[[2]], expand=c(.25,.25)) +
+    theme_void() +
+    theme(
+      axis.text.y = element_text(size=6, hjust=0),
+      axis.text.x = element_blank()
+    )
+  return(sc)
+}
+
+# TODO: Documentation and testing
+plotSCV <- function(y, x, controls, data, fixedEffects = NA){
+  sca <- sca(y, x, controls, data, fixedEffects)
+  scp <- scp(sca)
+  return(list(plotCurve(sca), plotVars(scp)))
+}
