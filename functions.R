@@ -85,9 +85,9 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
 #   fixedEffects = string name of variable to use for fixed effects if desired
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
-sca <- function(y, x, controls, data, fixedEffects = NA){
+sca <- function(y, x, controls, data, fixedEffects = NULL){
   # No fixed effects specified
-  if(is.na(fixedEffects)){
+  if(is.null(fixedEffects)){
     # Build the formulae
     formulae <- formula_builder(y=y, x=x, controls=controls)
     
@@ -136,7 +136,7 @@ sca <- function(y, x, controls, data, fixedEffects = NA){
   for(c in controls){
     retVal[c] <- ifelse(str_detect(retVal$terms, fixed(c)), 1, 0)
   }
-  
+
   return(retVal)
 }
 
@@ -161,11 +161,14 @@ scp <- function(spec_data){
 
 # TODO: Documentation and testing
 plotCurve <- function(sca_data, title="", 
-                         y_lab="Independent variable intercept"){
+                         y_lab="Independent variable coefficient"){
+  
+  pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
+  
   sc <- ggplot(data=sca_data, aes(y=coef, x=index, fill=factor(sig.level))) +
-    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
-    geom_point(size=.75) +
     geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
+    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
+    geom_point(size=pointSize) +
     labs(title=title, x="", y=y_lab) +
     theme_bw() +
     theme(
@@ -179,11 +182,15 @@ plotCurve <- function(sca_data, title="",
 }
 
 # TODO: Documentation and testing
-plotVars <- function(scp_data){
+plotVars <- function(sca_data){
+  scp_data <- scp(sca_data)
+
+  markSize <- 10/length(scp_data[[2]])
+  
   sc <- ggplot(data=scp_data[[1]],
                 aes(x=index,y=factor(controlID))
   ) +
-    geom_point(shape="|", size=1) +
+    geom_point(shape="|", size=markSize) +
     labs(y="", x="") +
     scale_y_discrete(labels=scp_data[[2]], expand=c(.25,.25)) +
     theme_void() +
@@ -195,8 +202,19 @@ plotVars <- function(scp_data){
 }
 
 # TODO: Documentation and testing
-plotSCV <- function(y, x, controls, data, fixedEffects = NA){
-  sca <- sca(y, x, controls, data, fixedEffects)
-  scp <- scp(sca)
-  return(list(plotCurve(sca), plotVars(scp)))
+plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
+  df_sca <- sca(y=y, x=x, controls=controls, data=data, fixedEffects=fixedEffects)
+  df_scp <- scp(df_sca)
+
+  sc1 <- plotCurve(df_sca)
+  sc2 <- plotVars(df_sca)
+  
+  if(combine){
+    grid::grid.newpage()
+    return(grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2))))
+  }
+  else return(list(sc1, sc2))
 }
+
+# TODO: Add estimated time/updates in console
+
