@@ -11,12 +11,13 @@ library(tidyverse)
 
 ```{r}
 # Load CalCOFI public bottle dataset
-bottles <- read.csv("Data/bottle.csv")
+#bottles <- read.csv("Data/bottle.csv")
+#saveRDS(bottles, "Data/bottles.rds")
+bottles <- readRDS("Data/bottles.rds")
 ```
 
 
 ```{r}
-source("functions.R")
 # sca_bottles <- sca(y="T_degC", x="Salnty", controls=c("STheta", "O2Sat", 
 #                                                       "STheta*O2Sat", "ChlorA"),
 #     data=bottles)
@@ -38,8 +39,19 @@ plotSCV(y="T_degC", x="Salnty", controls=c_15,
 ```
 
 ```{r}
-sca_bottles <- sca(y="T_degC", x="Salnty", controls=c_short[1:2],
-    data=bottles)
+sca_bottles <- sca(y="T_degC", x="Salnty", controls=c_5,
+    data=bottles, parallel=T)
+
+require(microbenchmark)
+
+# Fixed effects with parallel not working
+p <- microbenchmark(sca(y="T_degC", x="Salnty", controls=c_10, fixedEffects="R_Depth", data=bottles, parallel=T, workers=4), times=5)
+
+np <- microbenchmark(sca(y="T_degC", x="Salnty", controls=c_10,
+    data=bottles, fixedEffects="R_Depth", parallel=F), times=5)
+
+autoplot(p)
+autoplot(np)
 
 sc1 <- ggplot(data=sca_bottles, aes(y=coef, x=index, fill=factor(sig.level))) +
   geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +

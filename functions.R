@@ -5,6 +5,7 @@ require(tidyverse)
 require(combinat)
 require(lfe)
 require(stringr)
+require(snow)
 
 # Pastes together x and controls to be fed into formula()
 # Arguments:
@@ -85,22 +86,49 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
 #   fixedEffects = string name of variable to use for fixed effects if desired
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
-sca <- function(y, x, controls, data, fixedEffects = NULL){
-  # No fixed effects specified
-  if(is.null(fixedEffects)){
-    # Build the formulae
-    formulae <- formula_builder(y=y, x=x, controls=controls)
+sca <- function(y, x, controls, data, fixedEffects = NULL, 
+                parallel=FALSE, workers=2){
+  # With parallel computing
+  if(parallel){
     
-    # Estimate the models with lm()
-    models <- sapply(X=formulae, function(x2) summary(lm(x2, data=data)))
-  }
-  # Fixed effects specified
+    # No fixed effects specified
+    if(is.null(fixedEffects)){
+      
+      cl <- makeSOCKcluster(rep("localhost", workers))
+      
+      # Build the formulae
+      formulae <- formula_builder(y=y, x=x, controls=controls)
+      
+      # Estimate the models with lm()
+      clusterExport(cl, "formulae", envir=environment()) 
+      clusterExport(cl, "data", envir=environment()) 
+      models <- parSapply(cl, formulae, function(x2) summary(lm(x2, data=data)))
+      }
+    # Fixed effects specified
+    else{
+      formulae <- formula_builder(y=y, x=x, controls=controls, fixedEffects=fixedEffects)
+      
+      clusterExport(cl, "formulae", envir=environment()) 
+      clusterExport(cl, "data", envir=environment())
+      
+      # Estimate the models with felm()
+      models <- parSapply(cl, formulae, function(x2) summary(felm(x2, data=data)))
+      }
+    }
+  # Without parallel computing
   else{
-    # Build the formulae
-    formulae <- formula_builder(y=y, x=x, controls=controls, fixedEffects=fixedEffects)
-    
-    # Estimate the models with felm()
-    models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))
+    # No fixed effects specified
+    if(is.null(fixedEffects)){
+      models <- sapply(formulae, function(x2) summary(lm(x2, data=data)))
+    }
+    # Fixed effects specified
+    else{
+      # Build the formulae
+      formulae <- formula_builder(y=y, x=x, controls=controls, fixedEffects=fixedEffects)
+      
+      # Estimate the models with felm()
+      models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))      
+    }
   }
   
   # Extract results for IV
@@ -217,4 +245,4 @@ plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
 }
 
 # TODO: Add estimated time/updates in console
-
+# TODO: Fix fixedEffects in parallel
