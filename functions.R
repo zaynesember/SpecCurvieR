@@ -5,7 +5,8 @@ require(tidyverse)
 require(combinat)
 require(lfe)
 require(stringr)
-require(snow)
+#require(snow)
+require(parallel)
 
 # Pastes together x and controls to be fed into formula()
 # Arguments:
@@ -91,11 +92,13 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
   # With parallel computing
   if(parallel){
     
+    cl <- makePSOCKcluster(rep("localhost", workers))
+    
+    # Load needed package into each cluster
+    clusterEvalQ(cl, library(lfe))
+    
     # No fixed effects specified
     if(is.null(fixedEffects)){
-      
-      cl <- makeSOCKcluster(rep("localhost", workers))
-      
       # Build the formulae
       formulae <- formula_builder(y=y, x=x, controls=controls)
       
@@ -106,7 +109,8 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
       }
     # Fixed effects specified
     else{
-      formulae <- formula_builder(y=y, x=x, controls=controls, fixedEffects=fixedEffects)
+      formulae <- formula_builder(y=y, x=x, controls=controls, 
+                                  fixedEffects=fixedEffects)
       
       clusterExport(cl, "formulae", envir=environment()) 
       clusterExport(cl, "data", envir=environment())
@@ -119,12 +123,16 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
   else{
     # No fixed effects specified
     if(is.null(fixedEffects)){
+      # Build the formulae
+      formulae <- formula_builder(y=y, x=x, controls=controls)
+      
       models <- sapply(formulae, function(x2) summary(lm(x2, data=data)))
     }
     # Fixed effects specified
     else{
       # Build the formulae
-      formulae <- formula_builder(y=y, x=x, controls=controls, fixedEffects=fixedEffects)
+      formulae <- formula_builder(y=y, x=x, controls=controls, 
+                                  fixedEffects=fixedEffects)
       
       # Estimate the models with felm()
       models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))      
@@ -132,17 +140,22 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
   }
   
   # Extract results for IV
-  xVals <- apply(X=models, MARGIN=2, FUN=function(x2) x2$coefficients[x,])
-  
+  # xVals <- apply(X=models, MARGIN=2, FUN=function(x2) x2$coefficients[x,])
+  xVals <- apply(X=models, MARGIN=2, 
+                 FUN=function(x2) list(x2$coefficients[x,],
+                                       sqrt(mean(x2$residuals^2)),
+                                       x2$adj.r.squared))
   # Get each value of interest across models
-  coef <- xVals[1,]
-  se <- xVals[2,]
-  t <- xVals[3,]
-  p <- xVals[4,]
+  # TODO: FIX INDEXING
+  coef <- xVals[[1]][1]
+  se <- xVals[[1]][2]
+  t <- xVals[[1]][3]
+  p <- xVals[[1]][4]
   terms <- names(apply(X=models, MARGIN=2, FUN=function(x2) x2$terms[[1]]))
-  
+  RMSE <- xVals[[2]]
+  adjR <- xVals[[3]]
   # Put into a dataframe
-  retVal <- data.frame(terms, coef, se, t, p) %>% 
+  retVal <- data.frame(terms, coef, se, t, p, RMSE, adjR) %>% 
     mutate(
       sig.level=case_when(
         p < .005 ~ "p < .005",
@@ -184,7 +197,8 @@ scp <- function(spec_data){
   
   df_labels <- df %>% select(control, controlID) %>% unique()
   
-  return(list(df, setNames(as.character(df_labels$control), df_labels$controlID)))
+  return(list(df, setNames(as.character(df_labels$control), 
+                           df_labels$controlID)))
 }
 
 # TODO: Documentation and testing
@@ -193,7 +207,8 @@ plotCurve <- function(sca_data, title="",
   
   pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
   
-  sc <- ggplot(data=sca_data, aes(y=coef, x=index, fill=factor(sig.level))) +
+  sc <- ggplot(data=sca_data, aes(y=coef, x=index, 
+                                  fill=factor(sig.level))) +
     geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
     geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
     geom_point(size=pointSize) +
@@ -231,7 +246,8 @@ plotVars <- function(sca_data){
 
 # TODO: Documentation and testing
 plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
-  df_sca <- sca(y=y, x=x, controls=controls, data=data, fixedEffects=fixedEffects)
+  df_sca <- sca(y=y, x=x, controls=controls, data=data, 
+                fixedEffects=fixedEffects)
   df_scp <- scp(df_sca)
 
   sc1 <- plotCurve(df_sca)
@@ -245,4 +261,7 @@ plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
 }
 
 # TODO: Add estimated time/updates in console
-# TODO: Fix fixedEffects in parallel
+# TODO: Add support for two-way fixed effects and random effects
+# TODO: Add model fit plots (fix indexing)
+# TODO: Add plot of number of observations across models
+#       Maybe add some kind of power analysis?

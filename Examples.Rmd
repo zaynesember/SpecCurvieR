@@ -39,8 +39,9 @@ plotSCV(y="T_degC", x="Salnty", controls=c_15,
 ```
 
 ```{r}
-sca_bottles <- sca(y="T_degC", x="Salnty", controls=c_5,
-    data=bottles, parallel=T)
+source("functions.R")
+temp2 <- sca(y="T_degC", x="Salnty", controls=c_5,
+    data=bottles, parallel=F)
 
 require(microbenchmark)
 
