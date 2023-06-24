@@ -1,2 +1,2 @@
 # SpecCurvieR
-Helper functions to perform specification curve analysis with ggplot because the SpecCurv package wasn't cutting it.
+Work-in-progress sensitivity/specification curve R package. Improving upon specR by making prettier plots, supporting fixed effects, giving model estimation time estimates, and support for parallel computing. More to come.
