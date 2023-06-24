@@ -5,7 +5,7 @@ require(tidyverse)
 require(combinat)
 require(lfe)
 require(stringr)
-#require(snow)
+require(pbapply)
 require(parallel)
 
 # Pastes together x and controls to be fed into formula()
@@ -77,6 +77,7 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
   return(formulae)
 }
 
+# TODO: UPDATE DOCUMENTATION
 # Runs every possible combination of regression models using lm() or felm()
 # Arguments:
 #   y = string name of dependent variable column
@@ -87,7 +88,8 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
 #   fixedEffects = string name of variable to use for fixed effects if desired
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
-sca <- function(y, x, controls, data, fixedEffects = NULL, 
+sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
+                combinePlots=T, plotFits=F, progressBar=T, 
                 parallel=FALSE, workers=2){
   # With parallel computing
   if(parallel){
@@ -105,20 +107,40 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
       # Estimate the models with lm()
       clusterExport(cl, "formulae", envir=environment()) 
       clusterExport(cl, "data", envir=environment()) 
-      models <- parSapply(cl, formulae, function(x2) summary(lm(x2, data=data)))
+      
+      # Show progress bar if desired
+      if(progressBar){
+        print.noquote(paste("Estimating", length(formulae), "models in parallel with", 
+                    workers, "workers:"))
+        system.time(models <- pbsapply(formulae, 
+                                       function(x2) summary(lm(x2, data=data)),
+                                       cl=cl))
       }
+      else{
+        models <- parSapply(cl, formulae, function(x2) summary(lm(x2, data=data)))
+      }
+    }
     # Fixed effects specified
     else{
+      # Build the formulae
       formulae <- formula_builder(y=y, x=x, controls=controls, 
-                                  fixedEffects=fixedEffects)
+                                       fixedEffects=fixedEffects)
       
       clusterExport(cl, "formulae", envir=environment()) 
       clusterExport(cl, "data", envir=environment())
       
-      # Estimate the models with felm()
-      models <- parSapply(cl, formulae, function(x2) summary(felm(x2, data=data)))
+      if(progressBar){
+        print.noquote(paste("Estimating", length(formulae), "models in parallel with", 
+                    workers, "workers:"))
+        system.time(models <- pbsapply(formulae, 
+                                       function(x2) summary(felm(x2, data=data)),
+                                       cl=cl))
+      }
+      else{
+        models <- parSapply(cl, formulae, function(x2) summary(felm(x2, data=data)))
       }
     }
+  }
   # Without parallel computing
   else{
     # No fixed effects specified
@@ -126,34 +148,47 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
       # Build the formulae
       formulae <- formula_builder(y=y, x=x, controls=controls)
       
-      models <- sapply(formulae, function(x2) summary(lm(x2, data=data)))
+      if(progressBar){
+        print.noquote(paste("Estimating", length(formulae), "models:"))
+        system.time(models <- pbsapply(formulae, function(x2) summary(lm(x2, data=data))))
+      }
+      else{
+        models <- sapply(formulae, function(x2) summary(lm(x2, data=data)))
+      }
     }
     # Fixed effects specified
     else{
       # Build the formulae
-      formulae <- formula_builder(y=y, x=x, controls=controls, 
-                                  fixedEffects=fixedEffects)
+      formulae <- formula_builder(y=y, x=x, controls=controls,
+                                       fixedEffects=fixedEffects)
       
-      # Estimate the models with felm()
-      models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))      
+      if(progressBar){
+        print.noquote(paste("Estimating", length(formulae), "models:"))
+        system.time(models <- pbsapply(X=formulae, function(x2) summary(felm(x2, data=data))))
+      }
+      else{
+        models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))
+      }
     }
   }
   
+  # Garbage collection for parallel connections
+  if(parallel) stopCluster(cl=cl)
+  
   # Extract results for IV
   # xVals <- apply(X=models, MARGIN=2, FUN=function(x2) x2$coefficients[x,])
-  xVals <- apply(X=models, MARGIN=2, 
+  vals <- apply(X=models, MARGIN=2, 
                  FUN=function(x2) list(x2$coefficients[x,],
                                        sqrt(mean(x2$residuals^2)),
                                        x2$adj.r.squared))
   # Get each value of interest across models
-  # TODO: FIX INDEXING
-  coef <- xVals[[1]][1]
-  se <- xVals[[1]][2]
-  t <- xVals[[1]][3]
-  p <- xVals[[1]][4]
+  coef <- unlist(lapply(lapply(vals, `[[`, 1), `[[`, 1))
+  se <- unlist(lapply(lapply(vals, `[[`, 1), `[[`, 2))
+  t <- unlist(lapply(lapply(vals, `[[`, 1), `[[`, 3))
+  p <- unlist(lapply(lapply(vals, `[[`, 1), `[[`, 4))
   terms <- names(apply(X=models, MARGIN=2, FUN=function(x2) x2$terms[[1]]))
-  RMSE <- xVals[[2]]
-  adjR <- xVals[[3]]
+  RMSE <- unlist(lapply(lapply(vals, `[[`, 2), `[[`, 1))
+  adjR <- unlist(lapply(lapply(vals, `[[`, 3), `[[`, 1))
   # Put into a dataframe
   retVal <- data.frame(terms, coef, se, t, p, RMSE, adjR) %>% 
     mutate(
@@ -177,8 +212,21 @@ sca <- function(y, x, controls, data, fixedEffects = NULL,
   for(c in controls){
     retVal[c] <- ifelse(str_detect(retVal$terms, fixed(c)), 1, 0)
   }
-
-  return(retVal)
+  
+  # Generate plots if desired
+  if(plot){
+    
+    sc1 <- plotCurve(retVal)
+    sc2 <- plotVars(retVal)
+    
+    if(combinePlots){
+      grid::grid.newpage()
+      return(grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2))))
+    }
+    else return(list(sc1, sc2))
+  }
+  # Or just return model parameters
+  else return(retVal)
 }
 
 # Takes in the output of sca() and returns a list with the dataframe and 
@@ -260,8 +308,8 @@ plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
   else return(list(sc1, sc2))
 }
 
-# TODO: Add estimated time/updates in console
 # TODO: Add support for two-way fixed effects and random effects
-# TODO: Add model fit plots (fix indexing)
 # TODO: Add plot of number of observations across models
 #       Maybe add some kind of power analysis?
+# TODO: Fix unused connection warnings
+# TODO: Add model fit plots
