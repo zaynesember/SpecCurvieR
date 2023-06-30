@@ -40,10 +40,12 @@ plotSCV(y="T_degC", x="Salnty", controls=c_15,
 
 ```{r}
 source("functions.R")
-sca(y="T_degC", x="Salnty", controls=c_5,
-    data=bottles, parallel=F, plot=T)
+sca(y="T_degC", x="Salnty", controls=c_10[1:7],
+    data=bottles, parallel=T, plot=T, combinePlots=T, plotFits=T)
 
-# Fixed effects with parallel not working
+```
+
+```{r}
 p <- microbenchmark(sca(y="T_degC", x="Salnty", controls=c_10, fixedEffects="R_Depth", data=bottles, parallel=T, workers=4), times=5)
 
 np <- microbenchmark(sca(y="T_degC", x="Salnty", controls=c_10,
@@ -52,34 +54,5 @@ np <- microbenchmark(sca(y="T_degC", x="Salnty", controls=c_10,
 autoplot(p)
 autoplot(np)
 
-sc1 <- ggplot(data=sca_bottles, aes(y=coef, x=index, fill=factor(sig.level))) +
-  geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
-  geom_point(size=.75) +
-  geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
-  labs(title="Ocean Temperature ~ Salinity", x="", y="Salinity coefficient") +
-  theme_bw() +
-  theme(
-    axis.text.x = element_blank(),
-    legend.position="top",
-    legend.title=element_blank(),
-    legend.key.size = unit(.4, 'cm')
-  )
-
-scp_bottles <- scp(sca_bottles)
-
-sc2 <- ggplot(data=scp_bottles[[1]],
-  aes(x=index,y=factor(controlID))
-  ) +
-  geom_point(shape="|", size=5) +
-  labs(y="", x="") +
-  scale_y_discrete(labels=scp_bottles[[2]], expand=c(.25,.25)) +
-  theme_void() +
-  theme(
-    axis.text.y = element_text(size=6, hjust=0),
-    axis.text.x = element_blank()
-  )
-
-grid::grid.newpage()
-grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2)))
 ```
 

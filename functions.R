@@ -52,7 +52,7 @@ duplicate_remover <- function(controls, x){
 #   controls = vector of strings containing desired controls and interactions
 #   fixedEffects = string name of variable to use for fixed effects if desired
 # Returns: vector of formula objects
-formula_builder <- function(y, x, controls, fixedEffects=NA){
+formula_builder <- function(y, x, controls, fixedEffects=NA, cluster=NA){
   
   # Get all combinations of controls
   powerset <- unlist(lapply(1:length(controls),
@@ -66,10 +66,15 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
   
   #Build right hand side of the formulae
   if(is.na(fixedEffects)){
-    RHS <- unique(sapply(powerset, paste_factory, x))
+    if(is.na(cluster)) RHS <- unique(sapply(powerset, paste_factory, x))
+    else RHS <- paste(unique(sapply(powerset, paste_factory, x)), "", 
+                      cluster, sep=" | ")
   }
   else{
-    RHS <- paste(unique(sapply(powerset, paste_factory, x)), fixedEffects, sep=" | ")
+    if(is.na(cluster)) RHS <- paste(unique(sapply(powerset, paste_factory, x)), 
+                                   fixedEffects, sep=" | ")
+    else RHS <- paste(unique(sapply(powerset, paste_factory, x)), fixedEffects, 
+                      cluster, sep=" | ")
   }
   # Build formulae
   formulae <- sapply(paste(y, RHS, sep=" ~ "), formula)
@@ -85,10 +90,11 @@ formula_builder <- function(y, x, controls, fixedEffects=NA){
 #   controls = vector of strings containing desired controls and interactions
 #   data = dataframe object containing y, x, controls, and fixed effects
 #          variables
-#   fixedEffects = string name of variable to use for fixed effects if desired
+#   fixedEffects = string adding fixed effects variables if desired
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
-sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
+sca <- function(y, x, controls, data, fixedEffects=NULL,
+                cluster=NULL, plot=F,
                 combinePlots=T, plotFits=F, progressBar=T, 
                 parallel=FALSE, workers=2){
   # With parallel computing
@@ -111,7 +117,7 @@ sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
       # Show progress bar if desired
       if(progressBar){
         print.noquote(paste("Estimating", length(formulae), "models in parallel with", 
-                    workers, "workers:"))
+                    workers, "workers"))
         system.time(models <- pbsapply(formulae, 
                                        function(x2) summary(lm(x2, data=data)),
                                        cl=cl))
@@ -131,7 +137,7 @@ sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
       
       if(progressBar){
         print.noquote(paste("Estimating", length(formulae), "models in parallel with", 
-                    workers, "workers:"))
+                    workers, "workers"))
         system.time(models <- pbsapply(formulae, 
                                        function(x2) summary(felm(x2, data=data)),
                                        cl=cl))
@@ -149,7 +155,7 @@ sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
       formulae <- formula_builder(y=y, x=x, controls=controls)
       
       if(progressBar){
-        print.noquote(paste("Estimating", length(formulae), "models:"))
+        print.noquote(paste("Estimating", length(formulae), "models"))
         system.time(models <- pbsapply(formulae, function(x2) summary(lm(x2, data=data))))
       }
       else{
@@ -163,7 +169,7 @@ sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
                                        fixedEffects=fixedEffects)
       
       if(progressBar){
-        print.noquote(paste("Estimating", length(formulae), "models:"))
+        print.noquote(paste("Estimating", length(formulae), "models"))
         system.time(models <- pbsapply(X=formulae, function(x2) summary(felm(x2, data=data))))
       }
       else{
@@ -215,15 +221,33 @@ sca <- function(y, x, controls, data, fixedEffects = NULL, plot=F,
   
   # Generate plots if desired
   if(plot){
-    
+    grid::grid.newpage()
     sc1 <- plotCurve(retVal)
     sc2 <- plotVars(retVal)
     
-    if(combinePlots){
-      grid::grid.newpage()
-      return(grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2))))
+    if(plotFits){
+      sc3 <- plotRMSE(retVal)
+      sc4 <- plotR2Adj(retVal)
     }
-    else return(list(sc1, sc2))
+    
+    if(combinePlots){
+      
+      if(plotFits){
+        plots <- grid::grid.draw(rbind(ggplotGrob(sc1), 
+                                       ggplotGrob(sc3),
+                                       ggplotGrob(sc4),
+                                       ggplotGrob(sc2)))
+      }
+      else plots <- grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2)))
+      
+      
+      return(plots)
+    }
+    else{
+      if(plotFits) return(list(coefficient=sc1, controls=sc2, 
+                               RMSE=sc3, R2Adj=sc4))
+      else return(list(coefficient=sc1, controls=sc2))
+    }
   }
   # Or just return model parameters
   else return(retVal)
@@ -251,7 +275,7 @@ scp <- function(spec_data){
 
 # TODO: Documentation and testing
 plotCurve <- function(sca_data, title="", 
-                         y_lab="Independent variable coefficient"){
+                         y_lab="Coefficient"){
   
   pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
   
@@ -266,7 +290,8 @@ plotCurve <- function(sca_data, title="",
       axis.text.x = element_blank(),
       legend.position="top",
       legend.title=element_blank(),
-      legend.key.size = unit(.4, 'cm')
+      legend.key.size = unit(.4, 'cm'),
+      plot.margin = unit(c(-20,1,-5,1), "points")
     )
   
   return(sc)
@@ -287,29 +312,51 @@ plotVars <- function(sca_data){
     theme_void() +
     theme(
       axis.text.y = element_text(size=6, hjust=0),
-      axis.text.x = element_blank()
+      axis.text.x = element_blank(),
+      plot.margin = unit(c(-5,1,-5,1), "points")
     )
   return(sc)
 }
 
 # TODO: Documentation and testing
-plotSCV <- function(y, x, controls, data, fixedEffects = NULL, combine=T){
-  df_sca <- sca(y=y, x=x, controls=controls, data=data, 
-                fixedEffects=fixedEffects)
-  df_scp <- scp(df_sca)
-
-  sc1 <- plotCurve(df_sca)
-  sc2 <- plotVars(df_sca)
+plotRMSE <- function(sca_data, title=""){
   
-  if(combine){
-    grid::grid.newpage()
-    return(grid::grid.draw(rbind(ggplotGrob(sc1), ggplotGrob(sc2))))
-  }
-  else return(list(sc1, sc2))
+  pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
+  
+  sc <- ggplot(data=sca_data, aes(y=RMSE, x=index)) +
+    geom_point(size=pointSize) +
+    labs(title=title, x="", y="RMSE") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_blank(),
+      legend.title=element_blank(),
+      legend.key.size = unit(.4, 'cm'),
+      plot.margin = unit(c(-20,1,-5,1), "points")
+    )
 }
 
-# TODO: Add support for two-way fixed effects and random effects
+# TODO: Documentation and testing
+plotR2Adj <- function(sca_data, title=""){
+  
+  pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
+  
+  sc <- ggplot(data=sca_data, aes(y=adjR, x=index)) +
+    geom_point(size=pointSize) +
+    labs(title=title, x="", y=bquote('Adj. R'^2)) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_blank(),
+      legend.title=element_blank(),
+      legend.key.size = unit(.4, 'cm'),
+      plot.margin = unit(c(-20,1,-5,1), "points")
+    )
+}
+
+# TODO: Add support for IV via felm
+# TODO: Add support random effects
+# TODO: Add support for clustered SEs
+# TODO: Add support for robust SEs
+# TODO: Add support for comparison between SE types
 # TODO: Add plot of number of observations across models
 #       Maybe add some kind of power analysis?
-# TODO: Fix unused connection warnings
-# TODO: Add model fit plots
+# TODO: Compare model estimation speed to specR
