@@ -1,0 +1,89 @@
+---
+title: "Introducing specCurvieR"
+author: "Zayne Sember"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=F, warning=F)
+```
+
+# What is specCurvieR?
+
+specCurvieR is a work-in-progress R package aimed at making specification curve analysis easy, fast, and pretty.
+
+# Why did you make it?
+
+Data visualization and tinkering in R have been some of the most enjoyable parts of my research as a PhD student. The seeds for this package were planted when I took a course on replication in social science with Professor Gareth Nellis. One assignment involved performing a specification curve analysis for which Gareth provided us with some code to generate a specification curve. Not feeling like modifying someone else's code to get the final plot looking how I wanted, I was disappointed to see the available packages weren't much better. My biggest gripe was their use of base `R` plots which aren't exactly the prettiest ducklings and for which customization is a confusing hassle. Give me my `ggplot`! I want to arrange all the grobs! Long story short I gave in and used Gareth's code. Fast forward a couple years and I need to run a specification curve analysis but I can't find the assignment with Gareth's code--guess I'll just write it myself.
+
+# Why should I use it over other packages?
+
+specCurvieR seeks to provide everything alternative specification curve analysis packages offer with major improvements. Some features that set the package apart currently:
+* Support for parallel computing to speed up model estimation
+* Support for fixed effects
+* Support for clustered and robust standard errors
+* Option of a progress bar to monitor model estimation
+* All plots are generated using ggplot2, allowing a high degree of customization
+* Ability compare various model fit parameters
+
+# Can I see it in action?
+
+I thought you'd never ask, let's walk through some examples.
+
+The main function of the package is `sca()` (short for specification curve analysis, not the music). This is where you specify your model types, variables, controls, desired output, and whatnot.
+```{r}
+# Load packages
+library(tidyverse)
+
+# Load the specCurvieR
+source("functions.R")
+
+# Load some example data--CalCOFI's bottle database
+# (https://calcofi.org/data/oceanographic-data/bottle-database/)
+# and grab 500 observations from it
+bottles <- sample_n(readRDS("Data/bottles.rds"), 500)
+
+# Plenty of variables to play around with
+names(bottles)
+```
+```{r}
+# Suppose we're modelling the effect of salinity on ocean temperatures and
+# want to understand how including the concentration of other chemicals affects 
+# the model
+s <- sca(y="T_degC", x="Salnty", controls=c("O2Sat", "ChlorA", "NH3uM",
+                                            "NO2uM", "SiO3uM"), data=bottles)
+
+
+# The function returns a dataframe containing a row for every possible
+# combination of controls with all the information needed to generate plots.
+s[1:4,1:4]
+```
+
+```{r}
+# Lots of goodies in there, including the expression used to generate each
+# model and indicator variables for the presence of each of the
+# controls in that row's model
+names(s)
+```
+```{r}
+# Let's try that again but tell it produce some plots
+s <- sca(y="T_degC", x="Salnty", controls=c("O2Sat", "ChlorA", "NH3uM",
+                                            "NO2uM", "SiO3uM"), data=bottles,
+         plot=T)
+
+# Looks like our coefficient estimate for salinity changes quite a bit
+# depending on what controls we include (a progress bar is displayed by default
+# does not show up when knitting)
+s
+```
+```{r}
+# Maybe we want things a little less colorful, let's set the control
+# indicator ticks to all be black
+s <- sca(y="T_degC", x="Salnty", controls=c("O2Sat", "ChlorA", "NH3uM",
+                                            "NO2uM", "SiO3uM"), data=bottles,
+         plot=T, colorControls=F)
+
+s
+```
+

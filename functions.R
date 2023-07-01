@@ -64,7 +64,7 @@ formula_builder <- function(y, x, controls, fixedEffects=NA, cluster=NA){
   # Remove duplicate controls that are already in the interaction
   powerset <- unique(sapply(X=powerset, FUN=duplicate_remover, x=x))
   
-  #Build right hand side of the formulae
+  # Build right hand side of the formulae
   if(is.na(fixedEffects)){
     if(is.na(cluster)) RHS <- unique(sapply(powerset, paste_factory, x))
     else RHS <- paste(unique(sapply(powerset, paste_factory, x)), "", 
@@ -94,7 +94,7 @@ formula_builder <- function(y, x, controls, fixedEffects=NA, cluster=NA){
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
 sca <- function(y, x, controls, data, fixedEffects=NULL,
-                cluster=NULL, plot=F,
+                cluster=NULL, returnModels=F, plot=F, colorControls=T,
                 combinePlots=T, plotFits=F, progressBar=T, 
                 parallel=FALSE, workers=2){
   # With parallel computing
@@ -156,7 +156,8 @@ sca <- function(y, x, controls, data, fixedEffects=NULL,
       
       if(progressBar){
         print.noquote(paste("Estimating", length(formulae), "models"))
-        system.time(models <- pbsapply(formulae, function(x2) summary(lm(x2, data=data))))
+        system.time(models <- pbsapply(formulae, 
+                                       function(x2) summary(lm(x2, data=data))))
       }
       else{
         models <- sapply(formulae, function(x2) summary(lm(x2, data=data)))
@@ -170,7 +171,8 @@ sca <- function(y, x, controls, data, fixedEffects=NULL,
       
       if(progressBar){
         print.noquote(paste("Estimating", length(formulae), "models"))
-        system.time(models <- pbsapply(X=formulae, function(x2) summary(felm(x2, data=data))))
+        system.time(models <- pbsapply(X=formulae, 
+                                       function(x2) summary(felm(x2,data=data))))
       }
       else{
         models <- sapply(X=formulae, function(x2) summary(felm(x2, data=data)))
@@ -181,8 +183,11 @@ sca <- function(y, x, controls, data, fixedEffects=NULL,
   # Garbage collection for parallel connections
   if(parallel) stopCluster(cl=cl)
   
+  # If the user just wants a list of the model summary objects return that and 
+  # we're done
+  if(returnModels) return(models)
+  
   # Extract results for IV
-  # xVals <- apply(X=models, MARGIN=2, FUN=function(x2) x2$coefficients[x,])
   vals <- apply(X=models, MARGIN=2, 
                  FUN=function(x2) list(x2$coefficients[x,],
                                        sqrt(mean(x2$residuals^2)),
@@ -223,7 +228,7 @@ sca <- function(y, x, controls, data, fixedEffects=NULL,
   if(plot){
     grid::grid.newpage()
     sc1 <- plotCurve(retVal)
-    sc2 <- plotVars(retVal)
+    sc2 <- plotVars(retVal, colorControls)
     
     if(plotFits){
       sc3 <- plotRMSE(retVal)
@@ -282,39 +287,58 @@ plotCurve <- function(sca_data, title="",
   sc <- ggplot(data=sca_data, aes(y=coef, x=index, 
                                   fill=factor(sig.level))) +
     geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
-    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.5) +
-    geom_point(size=pointSize) +
+    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.4, fill="red", color="darkred") +
+    geom_point(aes(fill=as.factor(sig.level)),size=pointSize) +
     labs(title=title, x="", y=y_lab) +
     theme_bw() +
     theme(
       axis.text.x = element_blank(),
-      legend.position="top",
+      axis.title.y = element_text(vjust=-0.5),
+      legend.position="none",
       legend.title=element_blank(),
       legend.key.size = unit(.4, 'cm'),
-      plot.margin = unit(c(-20,1,-5,1), "points")
+      plot.margin = unit(c(-15,1,-5,1), "points")
     )
   
   return(sc)
 }
 
 # TODO: Documentation and testing
-plotVars <- function(sca_data){
+plotVars <- function(sca_data, colorControls=F){
   scp_data <- scp(sca_data)
 
   markSize <- 10/length(scp_data[[2]])
   
-  sc <- ggplot(data=scp_data[[1]],
-                aes(x=index,y=factor(controlID))
-  ) +
-    geom_point(shape="|", size=markSize) +
-    labs(y="", x="") +
-    scale_y_discrete(labels=scp_data[[2]], expand=c(.25,.25)) +
-    theme_void() +
-    theme(
-      axis.text.y = element_text(size=6, hjust=0),
-      axis.text.x = element_blank(),
-      plot.margin = unit(c(-5,1,-5,1), "points")
-    )
+  if(colorControls){
+    sc <- ggplot(data=scp_data[[1]],
+                  aes(x=index,y=factor(controlID), color=factor(controlID))
+    ) +
+      geom_point(shape="|", size=markSize) +
+      labs(y="", x="") +
+      scale_y_discrete(labels=scp_data[[2]], expand=c(.25,.25)) +
+      theme_void() +
+      theme(
+        legend.position = "none",
+        axis.text.y = element_text(size=6, hjust=0),
+        axis.text.x = element_blank(),
+        plot.margin = unit(c(-5,1,-5,1), "points")
+      )
+  }
+  else{
+      sc <- ggplot(data=scp_data[[1]],
+                   aes(x=index,y=factor(controlID))
+      ) +
+        geom_point(shape="|", size=markSize) +
+        labs(y="", x="") +
+        scale_y_discrete(labels=scp_data[[2]], expand=c(.25,.25)) +
+        theme_void() +
+        theme(
+          legend.position = "none",
+          axis.text.y = element_text(size=6, hjust=0),
+          axis.text.x = element_blank(),
+          plot.margin = unit(c(-5,1,-5,1), "points")
+        )
+    }    
   return(sc)
 }
 
@@ -352,6 +376,12 @@ plotR2Adj <- function(sca_data, title=""){
     )
 }
 
+# TODO: Variance decomposition
+# TODO: Add support for grouping models
+# TODO: Swap lm() for glm() and ensure support for all glm() models
+# TODO: Vary control tick colors
+# TODO: Add facet-wrapped histograms of control coefficients
+# TODO: Add other measures of model fit (AIC, BIC, Log. Likelihood)
 # TODO: Add support for IV via felm
 # TODO: Add support random effects
 # TODO: Add support for clustered SEs

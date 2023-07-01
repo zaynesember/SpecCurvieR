@@ -40,8 +40,9 @@ plotSCV(y="T_degC", x="Salnty", controls=c_15,
 
 ```{r}
 source("functions.R")
-sca(y="T_degC", x="Salnty", controls=c_10[1:7],
-    data=bottles, parallel=T, plot=T, combinePlots=T, plotFits=T)
+sca(y="T_degC", x="Salnty", controls=c_5[1:3],
+    data=bottles, parallel=F, plot=T,
+    colorControls=F, combinePlots=T, plotFits=F)
 
 ```
 
