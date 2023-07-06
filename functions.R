@@ -94,7 +94,7 @@ formula_builder <- function(y, x, controls, fixedEffects=NA, cluster=NA){
 # Returns: dataframe object containing the coefficient, standard error, t-value,
 #          p-value, list of terms in the regression, and significance level
 sca <- function(y, x, controls, data, fixedEffects=NULL,
-                cluster=NULL, returnModels=F, plot=F, colorControls=T,
+                cluster=NULL, returnModels=F, plot=F, plotSE="ribbon", colorControls=T,
                 combinePlots=T, plotFits=F, progressBar=T, 
                 parallel=FALSE, workers=2){
   # With parallel computing
@@ -227,7 +227,7 @@ sca <- function(y, x, controls, data, fixedEffects=NULL,
   # Generate plots if desired
   if(plot){
     grid::grid.newpage()
-    sc1 <- plotCurve(retVal)
+    sc1 <- plotCurve(retVal, plotSE=plotSE)
     sc2 <- plotVars(retVal, colorControls)
     
     if(plotFits){
@@ -280,25 +280,40 @@ scp <- function(spec_data){
 
 # TODO: Documentation and testing
 plotCurve <- function(sca_data, title="", 
-                         y_lab="Coefficient"){
+                         y_lab="Coefficient", plotSE){
   
   pointSize <- -.25*(ncol(sca_data)-7)+(13/4)
   
-  sc <- ggplot(data=sca_data, aes(y=coef, x=index, 
-                                  fill=factor(sig.level))) +
+  if(plotSE=="ribbon"){
+    # NEED TO FIX TERM INDICATOR DUPLICATES
+    print(names(sca_data))
+    sca_data <- sca_data %>% 
+      mutate(ribbon.group = cumsum(sig.level != lag(sig.level, 
+                                                    def = first(sig.level))))
+  }
+  
+  sc <- ggplot(data=sca_data, aes(y=coef, x=index)) +
     geom_hline(yintercept = 0, color="red", linetype="dashed", linewidth=.75) +
-    geom_ribbon(aes(ymin=coef-se, ymax=coef+se), alpha=.4, fill="red", color="darkred") +
-    geom_point(aes(fill=as.factor(sig.level)),size=pointSize) +
+    {if(plotSE=="ribbon") geom_ribbon(aes(ymin=coef-se, ymax=coef+se,
+                                           group=factor(ribbon.group),
+                                           fill=factor(sig.level)), 
+                                       alpha=.4)} +
+    {if(plotSE=="bar") geom_errorbar(aes(ymin=coef-se, ymax=coef+se, 
+                                          color=factor(sig.level)), 
+                                      width=0.25)} +
+    {if(!plotSE %in% c("ribbon", "bar")) geom_point(aes(color=as.factor(sig.level)),size=pointSize)} +
+    {if(plotSE %in% c("ribbon", "bar")) geom_point(color="black",size=pointSize)} +
     labs(title=title, x="", y=y_lab) +
     theme_bw() +
     theme(
       axis.text.x = element_blank(),
       axis.title.y = element_text(vjust=-0.5),
-      legend.position="none",
+      legend.position="top",
       legend.title=element_blank(),
-      legend.key.size = unit(.4, 'cm'),
       plot.margin = unit(c(-15,1,-5,1), "points")
-    )
+    ) +
+    guides(color = guide_legend(override.aes = list(size=2))) +
+    guides(fill = guide_legend(override.aes = list(size=2)))
   
   return(sc)
 }
@@ -379,7 +394,6 @@ plotR2Adj <- function(sca_data, title=""){
 # TODO: Variance decomposition
 # TODO: Add support for grouping models
 # TODO: Swap lm() for glm() and ensure support for all glm() models
-# TODO: Vary control tick colors
 # TODO: Add facet-wrapped histograms of control coefficients
 # TODO: Add other measures of model fit (AIC, BIC, Log. Likelihood)
 # TODO: Add support for IV via felm
